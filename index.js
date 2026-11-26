@@ -115,13 +115,20 @@ document.addEventListener('change',e=>{
   $('.fields',task).hidden=!e.target.checked;
  }
 });
+// Show a form error without re-rendering, so nothing the staff member entered is lost
+function showErr(form,text,focusName){
+ note={t:'',c:''};
+ const m=$('.msg',form);m.className='msg err';m.textContent=text;
+ const n=$('.notify',form);if(n)n.remove();
+ if(focusName){const el=form.elements[focusName];if(el)el.focus();}
+}
 document.addEventListener('submit',e=>{
  e.preventDefault();
  const fd=new FormData(e.target),tasks={};
  SETS[kind].forEach(t=>{if(fd.get('done-'+t.id)){tasks[t.id]={};t.fields.forEach(f=>tasks[t.id][f.k]=fd.get(t.id+'.'+f.k)||'')}});
  const staff=(fd.get('staff')||'').trim(),ch=(fd.get('challenges')||'').trim();
- if(!staff){note={t:'Enter your name before you submit.',c:'err'};render();return;}
- if(!Object.keys(tasks).length&&!ch){note={t:'Tick at least one job or describe a challenge.',c:'err'};render();return;}
+ if(!staff){showErr(e.target,'Enter your name before you submit.','staff');return;}
+ if(!Object.keys(tasks).length&&!ch){showErr(e.target,'Tick at least one job or describe a challenge.');return;}
  recs.push({id:Date.now().toString(36),staff,date:fd.get('date')||today(),kind,shift:fd.get('shift')||(kind==='weekly'?'Weekly':'Monthly'),tasks,challenges:ch,status:'pending',remarks:''});
  save();lastRec=recs[recs.length-1];note={t:'Submitted. Now alert your supervisor so they can check it.',c:'good'};render();
 });
