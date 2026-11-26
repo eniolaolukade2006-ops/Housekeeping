@@ -35,9 +35,14 @@ const SETS={daily:TASKS,weekly:WEEKLY,monthly:MONTHLY};
 // Supervisor contacts for alerts. WhatsApp: international format, e.g. '2349123456789'.
 const NOTIFY={whatsapp:'2347052340663',email:'abimbola@pertinencegroup.com'};
 function msgFor(r){
- const L=SETS[r.kind||'daily'],jobs=L.filter(t=>r.tasks[t.id]).map(t=>t.label).join(', ')||'none';
- const type={daily:'Daily log',weekly:'Weekly jobs',monthly:'Monthly deep cleaning'}[r.kind||'daily'];
- return 'New housekeeping record waiting for approval\nType: '+type+'\nStaff: '+r.staff+'\nDate: '+r.date+'\nJobs done: '+jobs+(r.challenges?'\nChallenges: '+r.challenges:'');
+ const k=r.kind||'daily',L=SETS[k];
+ const type={daily:'Daily log',weekly:'Weekly jobs',monthly:'Monthly deep cleaning'}[k];
+ const when=k==='weekly'?'Week starting: '+r.date:k==='daily'?'Date: '+r.date+' ('+r.shift+' shift)':'Date: '+r.date;
+ const jobs=L.filter(t=>r.tasks[t.id]).map(t=>{
+  const d=r.tasks[t.id],parts=t.fields.map(f=>d[f.k]?f.l+': '+d[f.k]:'').filter(Boolean);
+  return '- '+t.label+(parts.length?' ('+parts.join('; ')+')':'');
+ });
+ return 'New housekeeping record waiting for approval\nType: '+type+'\nStaff: '+r.staff+'\n'+when+'\n\nJobs done:\n'+(jobs.join('\n')||'- none')+(r.challenges?'\n\nChallenges: '+r.challenges:'');
 }
 function notifyHTML(r){
  const m=msgFor(r),n=NOTIFY.whatsapp.replace(/\D/g,'');
