@@ -1,0 +1,27 @@
+rules_version = '2';
+// Paste this into Firebase console > Firestore Database > Rules, then press Publish.
+// Put every supervisor's email in the list below (lowercase).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSupervisor() {
+      return request.auth != null
+        && request.auth.token.email in ['abimbola@pertinencegroup.com'];
+    }
+    match /records/{id} {
+      // Anyone with the link can see records (staff need to see their approval status).
+      allow read: if true;
+      // Staff can only send new records, and only as "waiting for approval".
+      allow create: if request.resource.data.status == 'pending'
+                    && request.resource.data.remarks == ''
+                    && request.resource.data.staff is string
+                    && request.resource.data.staff.size() > 0
+                    && request.resource.data.staff.size() < 100;
+      // Only supervisors can approve or return, and they cannot change what staff wrote.
+      allow update: if isSupervisor()
+                    && request.resource.data.status in ['approved', 'returned']
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'remarks', 'reviewedBy', 'reviewedAt']);
+      allow delete: if false;
+    }
+  }
+}

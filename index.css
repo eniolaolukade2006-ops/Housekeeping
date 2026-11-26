@@ -46,3 +46,8 @@ textarea{min-height:84px;resize:vertical}
 a.btn{display:inline-block;text-decoration:none}
 .notify{margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:10px}
 @media (prefers-reduced-motion:no-preference){.panel{animation:in .25s ease-out}@keyframes in{from{opacity:.4;transform:translateY(4px)}}}
+.who{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;color:var(--muted);font-size:.92rem}
+.btn.sm{padding:7px 14px;font-size:.9rem}
+.btn:disabled{opacity:.55;cursor:wait}
+.banner{border-color:var(--ret);color:var(--ret);font-weight:600}
+input[type=email],input[type=password]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 11px}

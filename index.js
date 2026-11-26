@@ -48,10 +48,19 @@ function notifyHTML(r){
  const m=msgFor(r),n=NOTIFY.whatsapp.replace(/\D/g,'');
  return `<div class="notify"><div class="meta">Send a quick alert so your supervisor knows to check it.</div><div class="acts"><a class="btn" target="_blank" rel="noopener" href="https://wa.me/${n}?text=${encodeURIComponent(m)}">Send on WhatsApp</a><a class="btn alt" target="_blank" rel="noopener" href="mailto:${esc(NOTIFY.email)}?subject=${encodeURIComponent('Housekeeping record waiting for approval')}&amp;body=${encodeURIComponent(m)}">Send by email</a></div></div>`;
 }
-const KEY='housekeeping-log-v1';
+// Firebase settings. Paste the values from Firebase console > Project settings > Your apps > Web app.
+// While projectId is empty the log keeps working the old way: records stay on this device only.
+const FIREBASE_CONFIG={apiKey:'',authDomain:'',projectId:'',appId:''};
+const ONLINE=!!(FIREBASE_CONFIG.projectId&&window.firebase);
+const KEY='housekeeping-log-v1',MINE_KEY='housekeeping-mine-v1';
 let recs=[],role='staff',kind='daily',filter='pending',lastRec=null,note={t:'',c:''};
-try{recs=JSON.parse(localStorage.getItem(KEY))||[]}catch(e){recs=[]}
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(recs))}catch(e){}};
+let user=null,db=null,auth=null,banner='';
+const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}};
+const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+let mine=load(MINE_KEY,[]);
+if(!ONLINE)recs=load(KEY,[]);
+const save=()=>{if(!ONLINE)store(KEY,recs)};
+const myRecs=()=>ONLINE?recs.filter(r=>mine.includes(r.id)):recs;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>new Date().toLocaleDateString('en-CA');
 const monday=()=>{const d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toLocaleDateString('en-CA')};
@@ -63,8 +72,12 @@ function fieldHTML(t,f){
  const inp=f.t==='select'?`<select name="${n}"><option value="">Choose</option>${f.o.map(o=>`<option>${o}</option>`).join('')}</select>`:`<input type="${f.t}" name="${n}">`;
  return `<label class="f"><span>${f.l}</span>${inp}</label>`;
 }
+function mineHTML(){
+ const mine=myRecs().slice().reverse();
+ return `<h2 style="margin:22px 0 12px">Submitted records</h2>${mine.length?mine.map(r=>recHTML(r,false)).join(''):'<div class="panel empty">Nothing submitted yet. Your records appear here with their approval status.</div>'}`;
+}
 function staffView(){
- const mine=recs.slice().reverse(),wk=kind==='weekly',mo=kind==='monthly';
+ const wk=kind==='weekly',mo=kind==='monthly';
  return `<div class="chips"><button type="button" data-kind="daily" aria-pressed="${!wk&&!mo}">Daily log</button><button type="button" data-kind="weekly" aria-pressed="${wk}">Weekly jobs</button><button type="button" data-kind="monthly" aria-pressed="${mo}">Monthly deep cleaning</button></div>
  <section class="panel"><h2>${wk?'Record this week’s jobs':mo?'Record this month’s deep cleaning':'Record today’s work'}</h2>
  <p class="sub">${wk?'Tick each weekly job you finished and add the details.':mo?'Tick each deep-cleaning job you finished and add the details.':'Tick each job you did and add the details.'} Your supervisor will check it.</p>
@@ -80,7 +93,7 @@ function staffView(){
   <p class="msg ${note.c}" role="status">${esc(note.t)}</p>
   ${note.c==='good'&&lastRec?notifyHTML(lastRec):''}
  </form></section>
- <section><h2 style="margin:22px 0 12px">Submitted records</h2>${mine.length?mine.map(r=>recHTML(r,false)).join(''):'<div class="panel empty">Nothing submitted yet. Your records appear here with their approval status.</div>'}</section>`;
+ <section id="mine">${mineHTML()}</section>`;
 }
 function recHTML(r,sup){
  const done=SETS[r.kind||'daily'].filter(t=>r.tasks[t.id]);
@@ -92,26 +105,63 @@ function recHTML(r,sup){
   ${sup&&r.status==='pending'?`<label class="f"><span>Inspection remarks</span><textarea data-rem placeholder="Add remarks from your inspection"></textarea></label><div class="acts"><button class="btn" data-act="approved">Approve record</button><button class="btn alt" data-act="returned">Return for correction</button></div>`:''}
  </article>`;
 }
+function loginHTML(){
+ return `<section class="panel"><h2>Supervisor sign-in</h2><p class="sub">Only supervisors can approve or return records.</p>
+ <form id="login" novalidate><div class="row">
+  <label class="f"><span>Email</span><input type="email" name="email" autocomplete="username"></label>
+  <label class="f"><span>Password</span><input type="password" name="password" autocomplete="current-password"></label>
+ </div><div class="acts"><button class="btn" type="submit">Sign in</button></div><p class="msg" role="status"></p></form></section>`;
+}
 function supView(){
+ if(ONLINE&&!user)return loginHTML();
  const cnt=s=>recs.filter(r=>r.status===s).length;
  const list=recs.filter(r=>r.status===filter).reverse();
  const chip=(s,l)=>`<button type="button" data-filter="${s}" aria-pressed="${filter===s}">${l} (${cnt(s)})</button>`;
- return `<section><h2 style="margin-bottom:4px">Records to check</h2><p class="sub">Review each record, add your inspection remarks, then approve it or send it back.</p>
+ return `${ONLINE?`<div class="who"><span>Signed in as ${esc(user.email)}</span><button type="button" class="btn alt sm" data-signout>Sign out</button></div>`:''}<section><h2 style="margin-bottom:4px">Records to check</h2><p class="sub">Review each record, add your inspection remarks, then approve it or send it back.</p>
  <div class="chips">${chip('pending','Waiting')}${chip('approved','Approved')}${chip('returned','Returned')}</div>
  ${list.length?list.map(r=>recHTML(r,true)).join(''):`<div class="panel empty">${filter==='pending'?'No records waiting. New submissions from staff show up here.':'No records in this list yet.'}</div>`}</section>`;
 }
+function bannerHTML(){return banner?`<div class="panel banner" role="alert">${esc(banner)}</div>`:''}
 function render(){
  document.querySelectorAll('[data-role]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.role===role));
- app.innerHTML=role==='staff'?staffView():supView();
+ app.innerHTML=bannerHTML()+(role==='staff'?staffView():supView());
 }
+// New data arrived: refresh the lists without wiping anything being typed.
+function refresh(){
+ if(role==='staff'){
+  const m=$('#mine');if(m)m.innerHTML=mineHTML();else render();
+  const bn=$('.banner');if(!banner&&bn)bn.remove();else if(banner&&!bn)app.insertAdjacentHTML('afterbegin',bannerHTML());
+  return;
+ }
+ const typed={};document.querySelectorAll('[data-rid] [data-rem]').forEach(t=>{if(t.value)typed[t.closest('[data-rid]').dataset.rid]=t.value});
+ const focusId=document.activeElement&&document.activeElement.matches('[data-rem]')?document.activeElement.closest('[data-rid]').dataset.rid:null;
+ if($('#login'))return; // never wipe the sign-in form
+ render();
+ Object.keys(typed).forEach(id=>{const t=$(`[data-rid="${id}"] [data-rem]`);if(t)t.value=typed[id]});
+ if(focusId){const t=$(`[data-rid="${focusId}"] [data-rem]`);if(t)t.focus()}
+}
+function friendly(err){
+ const c=(err&&err.code)||'';
+ if(/wrong-password|invalid-credential|user-not-found|invalid-email|invalid-login/.test(c))return 'That email or password is not right.';
+ if(/too-many-requests/.test(c))return 'Too many tries. Wait a few minutes and try again.';
+ if(/permission-denied/.test(c))return 'This account is not allowed to approve records.';
+ if(/unavailable|network/.test(c))return 'No internet connection. Check your data or Wi-Fi and try again.';
+ return 'Something went wrong. Please try again.';
+}
+function setMsg(form,text,cls){const m=$('.msg',form);if(m){m.className='msg '+(cls||'');m.textContent=text}}
+
 document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.dataset.role){role=b.dataset.role;note={t:'',c:''};render();}
  else if(b.dataset.kind){kind=b.dataset.kind;note={t:'',c:''};render();}
  else if(b.dataset.filter){filter=b.dataset.filter;render();}
+ else if(b.hasAttribute('data-signout')){auth.signOut();}
  else if(b.dataset.act){
-  const card=b.closest('[data-rid]');const r=recs.find(x=>x.id===card.dataset.rid);
-  r.status=b.dataset.act;r.remarks=$('[data-rem]',card).value.trim();save();render();
+  const card=b.closest('[data-rid]'),id=card.dataset.rid,status=b.dataset.act,remarks=$('[data-rem]',card).value.trim();
+  if(!ONLINE){const r=recs.find(x=>x.id===id);r.status=status;r.remarks=remarks;save();render();return;}
+  card.querySelectorAll('button').forEach(x=>x.disabled=true);
+  db.collection('records').doc(id).update({status,remarks,reviewedBy:user.email,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()})
+   .catch(err=>{card.querySelectorAll('button').forEach(x=>x.disabled=false);alert(friendly(err));});
  }
 });
 document.addEventListener('change',e=>{
@@ -123,18 +173,57 @@ document.addEventListener('change',e=>{
 // Show a form error without re-rendering, so nothing the staff member entered is lost
 function showErr(form,text,focusName){
  note={t:'',c:''};
- const m=$('.msg',form);m.className='msg err';m.textContent=text;
+ setMsg(form,text,'err');
  const n=$('.notify',form);if(n)n.remove();
  if(focusName){const el=form.elements[focusName];if(el)el.focus();}
 }
 document.addEventListener('submit',e=>{
  e.preventDefault();
- const fd=new FormData(e.target),tasks={};
+ const form=e.target;
+ if(form.id==='login'){
+  const em=form.elements.email.value.trim(),pw=form.elements.password.value;
+  if(!em||!pw){setMsg(form,'Enter your email and password.','err');return;}
+  const btn=$('button[type=submit]',form);btn.disabled=true;setMsg(form,'Signing in…');
+  auth.signInWithEmailAndPassword(em,pw).catch(err=>{btn.disabled=false;setMsg(form,friendly(err),'err')});
+  return;
+ }
+ const fd=new FormData(form),tasks={};
  SETS[kind].forEach(t=>{if(fd.get('done-'+t.id)){tasks[t.id]={};t.fields.forEach(f=>tasks[t.id][f.k]=fd.get(t.id+'.'+f.k)||'')}});
  const staff=(fd.get('staff')||'').trim(),ch=(fd.get('challenges')||'').trim();
- if(!staff){showErr(e.target,'Enter your name before you submit.','staff');return;}
- if(!Object.keys(tasks).length&&!ch){showErr(e.target,'Tick at least one job or describe a challenge.');return;}
- recs.push({id:Date.now().toString(36),staff,date:fd.get('date')||today(),kind,shift:fd.get('shift')||(kind==='weekly'?'Weekly':'Monthly'),tasks,challenges:ch,status:'pending',remarks:''});
- save();lastRec=recs[recs.length-1];note={t:'Submitted. Now alert your supervisor so they can check it.',c:'good'};render();
+ if(!staff){showErr(form,'Enter your name before you submit.','staff');return;}
+ if(!Object.keys(tasks).length&&!ch){showErr(form,'Tick at least one job or describe a challenge.');return;}
+ const rec={staff,date:fd.get('date')||today(),kind,shift:fd.get('shift')||(kind==='weekly'?'Weekly':'Monthly'),tasks,challenges:ch,status:'pending',remarks:''};
+ const done=r=>{lastRec=r;note={t:'Submitted. Now alert your supervisor so they can check it.',c:'good'};render();};
+ if(!ONLINE){rec.id=Date.now().toString(36);recs.push(rec);save();done(rec);return;}
+ const btn=$('button[type=submit]',form);btn.disabled=true;setMsg(form,'Sending…');
+ const ref=db.collection('records').doc();
+ mine.push(ref.id);store(MINE_KEY,mine);
+ ref.set(Object.assign({},rec,{createdAt:firebase.firestore.FieldValue.serverTimestamp()}))
+  .then(()=>done(Object.assign({id:ref.id},rec)))
+  .catch(err=>{mine=mine.filter(x=>x!==ref.id);store(MINE_KEY,mine);btn.disabled=false;showErr(form,friendly(err));});
 });
+
+// Move records that were still waiting on this device into the shared list, once.
+function migrateLocal(){
+ const old=load(KEY,[]).filter(r=>r.status==='pending'&&!r.moved);
+ if(!old.length)return;
+ old.forEach(r=>{
+  const ref=db.collection('records').doc(),data=Object.assign({},r,{createdAt:firebase.firestore.FieldValue.serverTimestamp()});delete data.id;delete data.moved;
+  ref.set(data).then(()=>{
+   mine.push(ref.id);store(MINE_KEY,mine);
+   const all=load(KEY,[]),x=all.find(y=>y.id===r.id);if(x){x.moved=true;store(KEY,all)}
+  }).catch(()=>{});
+ });
+}
+
+if(ONLINE){
+ firebase.initializeApp(FIREBASE_CONFIG);
+ db=firebase.firestore();auth=firebase.auth();
+ db.collection('records').orderBy('createdAt','desc').limit(500).onSnapshot(snap=>{
+  recs=snap.docs.map(d=>Object.assign({id:d.id},d.data({serverTimestamps:'estimate'}))).reverse();
+  banner='';refresh();
+ },err=>{banner='Could not load records: '+friendly(err);refresh();});
+ auth.onAuthStateChanged(u=>{user=u;if(role==='supervisor')render();});
+ migrateLocal();
+}
 render();
